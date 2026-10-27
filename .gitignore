@@ -93,9 +93,11 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environment variable
-# .env
-# .env*
+# Environment variable (real env files must never be committed; templates are allowed)
+.env
+.env*
+!.env.example
+!.env.*.example
 
 # Environments
 .venv/

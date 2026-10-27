@@ -27,7 +27,7 @@
 
 #### File: [development_pipeline.yml](development_pipeline.yml)
 
-**Event:** On Pull Request → any branch into develop
+**Event:** On Pull Request → any branch into develop, and on push to develop
 
 **Jobs:**
 
@@ -35,11 +35,12 @@
 - Run isort
 - Run black
 - Run flake8
+- Run unit and integration tests (`python -m flask tests` against a PostgreSQL service container)
 - Build images (caches)
 - Push images to Docker Hub
 
 **Description:**
-This workflow is triggered on Pull Requests into the develop branch. It ensures a clean and standardized codebase by installing dependencies, checking code formatting with isort, black, and flake8, and finally building and pushing Docker images to Docker Hub.
+This workflow is triggered on Pull Requests into the develop branch and on every push to it. It ensures a clean and standardized codebase by installing dependencies, checking code formatting with isort, black, and flake8, running the test suite, and finally building and pushing Docker images to Docker Hub.
 
 ### Staging - CI/CD Pipeline
 
@@ -53,6 +54,7 @@ This workflow is triggered on Pull Requests into the develop branch. It ensures 
 - Run isort
 - Run black
 - Run flake8
+- Run unit and integration tests (`python -m flask tests` against a PostgreSQL service container)
 - Build images (caches)
 - Push images to Docker Hub
 - Create infrastructure
@@ -75,6 +77,7 @@ This pipeline is designed for the staging environment and is triggered on Pull R
 - Run isort
 - Run black
 - Run flake8
+- Run unit and integration tests (`python -m flask tests` against a PostgreSQL service container)
 - Build images (caches)
 - Push images to Docker Hub
 - Create infrastructure
