@@ -31,7 +31,7 @@ Parameters:
   AMItoUse:
     Description: AMI to use for our base image - Canonical, Ubuntu, 22.04 LTS, amd64 jammy image build on 2023-05-16
     Type: String
-    Default: "ami-053b0d53c279acc90"
+    Default: "ami-key"
 
 Resources:
   VPC:
