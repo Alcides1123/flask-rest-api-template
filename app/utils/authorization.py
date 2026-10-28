@@ -11,7 +11,7 @@ next request - nothing authorization related is cached inside the JWT.
 """
 import logging
 
-from flask_jwt_extended import get_jwt_identity
+from flask_jwt_extended import current_user
 from flask_smorest import abort
 
 from app.db import db
@@ -24,10 +24,23 @@ ADMIN_PERMISSION = "admin"
 logger = logging.getLogger(__name__)
 
 
+def has_permission(user, permission_name):
+    """
+    In-memory check on an already loaded user (roles and permissions are
+    eager-loaded by the JWT user lookup, see app/utils/auth.py).
+    """
+    return any(
+        permission.name == permission_name
+        for role in user.roles
+        for permission in role.permissions
+    )
+
+
 def user_has_permission(user_id, permission_name):
     """
-    Return True if the user holds the permission through any of their roles.
-    Single query, no N+1 over roles / permissions.
+    Database check: does the user hold the permission through any role?
+    Used where the answer must reflect uncommitted changes in the session
+    (see ensure_caller_keeps_admin), single query.
     """
     return (
         db.session.query(UserModel.id)
@@ -40,11 +53,12 @@ def user_has_permission(user_id, permission_name):
 
 
 def current_user_id():
-    return get_jwt_identity()
+    # flask_jwt_extended.current_user is the UserModel loaded for this request
+    return current_user.id
 
 
 def current_user_is_admin():
-    return user_has_permission(current_user_id(), ADMIN_PERMISSION)
+    return has_permission(current_user, ADMIN_PERMISSION)
 
 
 def ensure_caller_keeps_admin():

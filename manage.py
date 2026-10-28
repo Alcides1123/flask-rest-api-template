@@ -1,12 +1,12 @@
 import sys
 import unittest
+from datetime import datetime, timezone
 
 import click
-import coverage
 from passlib.hash import pbkdf2_sha256
 
 from app.db import db
-from app.models import PermissionModel, RoleModel, UserModel
+from app.models import BlocklistModel, PermissionModel, RoleModel, UserModel
 from app.utils.authorization import ADMIN_PERMISSION
 
 
@@ -17,6 +17,8 @@ def cov(pattern):
     """
     Run the unit tests with coverage
     """
+    import coverage  # dev dependency (requirements-dev.txt), not needed at runtime
+
     cov = coverage.coverage(branch=True, include="app/*")
     cov.start()
     tests = unittest.TestLoader().discover("tests", pattern=pattern)
@@ -39,6 +41,8 @@ def cov_html(pattern):
     """
     Run the unit tests with coverage and generate an HTML report.
     """
+    import coverage  # dev dependency (requirements-dev.txt), not needed at runtime
+
     cov = coverage.coverage(branch=True, include="app/*")
     cov.start()
 
@@ -176,15 +180,32 @@ def create_user_admin(username="admin"):
         ensure_admin_permission()
 
 
+def prune_blocklist():
+    """
+    Delete revoked-token rows whose token has expired anyway. Run periodically
+    (cron / scheduler) to keep the blocklist table small.
+    """
+    now = datetime.now(timezone.utc)
+    # synchronize_session=False: no loaded objects need updating, and it avoids
+    # Python-side comparison of naive (SQLite) vs aware datetimes.
+    deleted = BlocklistModel.query.filter(BlocklistModel.expires_at < now).delete(
+        synchronize_session=False
+    )
+    db.session.commit()
+    print(f"Pruned {deleted} expired blocklist entries.")
+    return deleted
+
+
 def init_app(app):
     if app.config["APP_ENV"] == "production":
-        commands = [create_db, reset_db, drop_db, create_user_admin]
+        commands = [create_db, reset_db, drop_db, create_user_admin, prune_blocklist]
     else:
         commands = [
             create_db,
             reset_db,
             drop_db,
             create_user_admin,
+            prune_blocklist,
             tests,
             cov_html,
             cov,

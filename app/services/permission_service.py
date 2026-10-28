@@ -34,8 +34,7 @@ def post_permission(permission_data):
 
 
 def get_permission(permission_id):
-    results = PermissionModel.query.filter_by(id=permission_id).first()
-    return results
+    return get_or_404(PermissionModel, permission_id, "Permission")
 
 
 def update_permission(permission_data, permission_id):

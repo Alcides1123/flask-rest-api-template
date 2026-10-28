@@ -28,7 +28,10 @@ jobs:
           cache: "pip"
 
       - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Audit runtime dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt
 
       - name: Run isort
         run: isort --check-only --profile=black .
@@ -37,11 +40,16 @@ jobs:
         run: black --check .
 
       - name: Run flake8
-        run: flake8 --ignore=E501,W503,F401 .
+        run: flake8 .
 
       - name: Unit Tests and Integration Tests
         env:
+          APP_SETTINGS_MODULE: config.TestingConfig
+          APP_TEST_SETTINGS_MODULE: config.TestingConfig
           DATABASE_TEST_URL: postgresql://db_user:db_password@localhost/db_test
+          # Throw-away values: tokens are only created and verified inside the test run
+          SECRET_KEY: ci-only-secret-key
+          JWT_SECRET_KEY: ci-only-jwt-secret-key
         run: python -m flask tests
 
       - name: Set up Docker Buildx

@@ -39,8 +39,7 @@ def post_role(role_data):
 
 
 def get_role(role_id):
-    results = RoleModel.query.filter_by(id=role_id).first()
-    return results
+    return get_or_404(RoleModel, role_id, "Role")
 
 
 def update_role(role_data, role_id):

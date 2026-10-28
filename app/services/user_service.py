@@ -1,11 +1,12 @@
 import logging
+from datetime import datetime, timezone
 
+from flask import current_app
 from flask_jwt_extended import (
     create_access_token,
     create_refresh_token,
     decode_token,
     get_jwt,
-    get_jwt_identity,
 )
 from flask_smorest import abort
 from passlib.hash import pbkdf2_sha256
@@ -36,8 +37,7 @@ def get_all_user():
 
 
 def get_user(user_id):
-    results = UserModel.query.filter_by(id=user_id).first()
-    return results
+    return get_or_404(UserModel, user_id, "User")
 
 
 def update_user(user_data, user_id):
@@ -161,11 +161,14 @@ def create_token_pair(user_id, fresh=False):
     access token (claim "refresh_jti"). That lets /logout revoke both tokens
     of the pair even though the client only presents the access token.
     """
-    refresh_token = create_refresh_token(identity=user_id)
+    # "sub" must be a string (RFC 7519); see authorization.current_user_id()
+    identity = str(user_id)
+
+    refresh_token = create_refresh_token(identity=identity)
     refresh_jti = decode_token(refresh_token)["jti"]
 
     access_token = create_access_token(
-        identity=user_id,
+        identity=identity,
         fresh=fresh,
         additional_claims={"refresh_jti": refresh_jti},
     )
@@ -179,37 +182,48 @@ def logout_user():
     together with it.
     """
     jwt = get_jwt()
-    add_jti_blocklist(jwt["jti"])
+    add_jti_blocklist(jwt["jti"], expires_at=_from_timestamp(jwt["exp"]))
 
     refresh_jti = jwt.get("refresh_jti")
     if refresh_jti:
-        add_jti_blocklist(refresh_jti)
+        # The refresh token's own exp is not at hand; its lifetime is an upper bound
+        add_jti_blocklist(
+            refresh_jti,
+            expires_at=datetime.now(timezone.utc)
+            + current_app.config["JWT_REFRESH_TOKEN_EXPIRES"],
+        )
 
     return {"message": "Logout successfully!"}
 
 
 def refresh_token():
     # Get id current user
-    current_user_id = get_jwt_identity()
+    user_id = current_user_id()
 
     # Refresh tokens are single-use: revoke the one that was just presented.
     # NOTE: the access token that was paired with it is *not* revoked here
     # (its jti is not known in this context) and stays valid until it expires.
-    add_jti_blocklist(get_jwt()["jti"])
+    jwt = get_jwt()
+    add_jti_blocklist(jwt["jti"], expires_at=_from_timestamp(jwt["exp"]))
 
-    return create_token_pair(current_user_id, fresh=False)
+    return create_token_pair(user_id, fresh=False)
 
 
-def add_jti_blocklist(jti):
+def _from_timestamp(unix_timestamp):
+    return datetime.fromtimestamp(unix_timestamp, timezone.utc)
+
+
+def add_jti_blocklist(jti, expires_at=None):
     """
     Add a token id to the blocklist. Idempotent: revoking an already revoked
-    token is not an error.
+    token is not an error. expires_at lets prune_blocklist() drop the row once
+    the token could no longer be used anyway.
     """
-    if BlocklistModel.query.filter_by(jti_blocklist=str(jti)).first():
+    if db.session.get(BlocklistModel, str(jti)) is not None:
         return
 
     try:
-        db.session.add(BlocklistModel(jti_blocklist=str(jti)))
+        db.session.add(BlocklistModel(jti_blocklist=str(jti), expires_at=expires_at))
         db.session.commit()
     except Exception:
         db.session.rollback()

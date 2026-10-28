@@ -62,8 +62,7 @@ All commands in this guide are given for **Bash** (Linux / macOS / WSL / Git Bas
 
 ## Requirements
 
-- **Python:** 3.10 (the version pinned in the [Dockerfile](Dockerfile) and used by the CI pipelines).
-  The dependency versions pinned in `requirements.txt` do **not** build on Python 3.12 or newer (`greenlet`, `psycopg2-binary` and `pyzmq` fail to compile), so stick to 3.10 unless you also upgrade `requirements.txt`.
+- **Python:** 3.10 (the version used by the [Dockerfile](Dockerfile) and the CI pipelines). The pinned dependencies also install and pass the test suite on 3.12.
 - **Git**
 - **Docker** and **Docker Compose** (Docker Desktop on Windows/macOS) – only needed for the [Local](#local) environment
 - **PostgreSQL** – provided by Docker Compose; a SQLite file can be used instead for quick local development (see [Develop](#develop))
@@ -178,8 +177,11 @@ There is no special "super admin" user id. Whoever holds a role with the `admin`
 
 ### Other Things to Know Before Going to Production
 
-- **CORS** is configured as `origins: "*"` with `supports_credentials` in `app/__init__.py`. Restrict it to your real front-end origin(s).
-- **Token lifetimes** are set in `config.py` (`JWT_ACCESS_TOKEN_EXPIRES` = 30 minutes, `JWT_REFRESH_TOKEN_EXPIRES` = 30 days). Logging out or refreshing adds the token `jti` to a database blocklist.
+- **CORS** is off unless `CORS_ORIGINS` lists your front-end origin(s); credentials are never allowed (authentication is a bearer token, not a cookie). `DevelopConfig` defaults to `*` for convenience – never use `*` in production.
+- **Rate limiting** protects `/login` (`RATELIMIT_LOGIN`, default `5 per minute`) and `/register` (`RATELIMIT_REGISTER`, default `3 per minute`) per client IP. The default `memory://` store is per Gunicorn worker; set `RATELIMIT_STORAGE_URI` to a shared store (e.g. Redis) for exact limits across workers. Behind Nginx, `TRUSTED_PROXY_COUNT` must be set (the Local / Production configs default to `1`) so the limit is keyed on the real client address and not on the proxy.
+- **Dependencies**: the Docker image installs only `requirements.txt` (runtime). Linters, test tools and `pip-audit` are in `requirements-dev.txt`. CI runs `pip-audit -r requirements.txt` on every pipeline and fails on known vulnerabilities – run it locally too before bumping versions.
+- **Container user**: the image runs as the unprivileged user `app` (uid/gid 1000). The `./logs` bind mount must be writable by that uid; on a host where your user is not uid 1000, `chown -R 1000:1000 logs` (or change the ids in the Dockerfile).
+- **Token lifetimes** are set in `config.py` (`JWT_ACCESS_TOKEN_EXPIRES` = 30 minutes, `JWT_REFRESH_TOKEN_EXPIRES` = 30 days). Logging out or refreshing adds the token `jti` to a database blocklist together with the token's expiry; run `flask prune-blocklist` periodically (cron) to drop rows for tokens that have expired anyway.
 - **Registration** (`POST /register`) is open and assigns the `Guest` (read-only) role, looked up by name. Disable or protect it if you do not want self sign-up.
 - **Environment files are not part of the deployment archive** (see [Creating Deployment Archive](#creating-deployment-archive)); `.env.api.local` / `.env.db.local` must be provisioned on the server (or injected by your orchestrator) out of band.
 - **Gunicorn worker count / timeouts** are tunable via environment variables (`WEB_CONCURRENCY`, `MAX_WORKERS`, `TIMEOUT`, …) – see [gunicorn/gunicorn_config.py](gunicorn/gunicorn_config.py).
@@ -203,7 +205,7 @@ The configuration class is selected with `APP_SETTINGS_MODULE` (see [config.py](
 | Variable                                                                                                       | Used by                      | Description                                                                                |
 | -------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ |
 | `APP_SETTINGS_MODULE`                                                                                          | `app/__init__.py`            | Config class, e.g. `config.DevelopConfig`                                                  |
-| `APP_TEST_SETTINGS_MODULE`                                                                                     | `tests/`                     | Config class for tests, normally `config.TestingConfig`                                    |
+| `APP_TEST_SETTINGS_MODULE`                                                                                     | `tests/`                     | Config class for tests, defaults to `config.TestingConfig`                                 |
 | `APP_NAME`                                                                                                     | `config.py`                  | Application name                                                                           |
 | `SECRET_KEY`                                                                                                   | Flask                        | Flask secret – **generate a random value**                                                 |
 | `JWT_SECRET_KEY`                                                                                               | Flask-JWT-Extended           | Token signing key – **generate a random value**, different from `SECRET_KEY`               |
@@ -216,11 +218,16 @@ The configuration class is selected with `APP_SETTINGS_MODULE` (see [config.py](
 | `POSTGRES_PASSWORD`                                                                                            | postgres image               | Database password                                                                          |
 | `POSTGRES_DB`                                                                                                  | `entrypoint.sh`, postgres    | Database name                                                                              |
 | `PGPASSWORD`                                                                                                   | `entrypoint.sh` (`psql`)     | Same value as `POSTGRES_PASSWORD`; `psql` needs it for the non-interactive readiness check |
-| `API_ENTRYPOINT`                                                                                               | `entrypoint.sh`              | WSGI entrypoint for Gunicorn: `app:app`                                                    |
+| `API_ENTRYPOINT`                                                                                               | `entrypoint.sh`              | WSGI entrypoint for Gunicorn, default `wsgi:app` ([wsgi.py](wsgi.py))                      |
+| `LOG_TIMEZONE`                                                                                                 | `app/utils/logging.py`       | Timezone for log timestamps, default `Asia/Ho_Chi_Minh`                                    |
 | `API_HOST` / `API_PORT`                                                                                        | Gunicorn                     | Bind address, defaults `0.0.0.0` / `5000`                                                  |
 | `WEB_CONCURRENCY`, `MAX_WORKERS`, `WORKERS_PER_CORE`, `TIMEOUT`, `GRACEFUL_TIMEOUT`, `KEEP_ALIVE`, `LOG_LEVEL` | Gunicorn                     | Optional tuning, see [gunicorn/gunicorn_config.py](gunicorn/gunicorn_config.py)            |
+| `CORS_ORIGINS`                                                                                                 | Flask-CORS                   | Comma separated allowed origins; empty = no cross-origin access (Develop defaults to `*`)  |
+| `RATELIMIT_LOGIN` / `RATELIMIT_REGISTER`                                                                       | Flask-Limiter                | Limits for `/login` and `/register`, defaults `5 per minute` / `3 per minute`              |
+| `RATELIMIT_STORAGE_URI`                                                                                        | Flask-Limiter                | Limit counter storage, default `memory://` (per process); e.g. `redis://redis:6379`        |
+| `TRUSTED_PROXY_COUNT`                                                                                          | `ProxyFix`                   | Reverse proxies whose `X-Forwarded-*` headers are trusted; `0` (Develop), `1` (Local/Prod) |
 
-> **The `logs/` directory must exist** before the application is imported: `config.py` points the file logger at `logs/api.log` (or `logs/api_tests.log` for tests) and the app fails with `FileNotFoundError` otherwise. The directory is not committed (its content is git-ignored), so create it once after cloning – every section below includes that step.
+> Log files go to `logs/api.log` (`logs/api_tests.log` for tests); the directory is created automatically on start-up and its content is git-ignored.
 
 ### Develop
 
@@ -242,8 +249,7 @@ source venv/bin/activate
 conda create -n flask-template python=3.10 -y
 conda activate flask-template
 
-pip install -r requirements.txt
-mkdir -p logs
+pip install -r requirements-dev.txt   # runtime + linters/test tools
 ```
 
 PowerShell:
@@ -260,8 +266,7 @@ py -3.10 -m venv venv
 conda create -n flask-template python=3.10 -y
 conda activate flask-template
 
-pip install -r requirements.txt
-New-Item -ItemType Directory -Force -Path logs | Out-Null
+pip install -r requirements-dev.txt   # runtime + linters/test tools
 ```
 
 **2. Create a `.env` file** in the project root (git-ignored). Either point `DATABASE_URL` at a PostgreSQL instance (for example the one from [Local](#local): `docker compose up -d db_service`), or use SQLite for a zero-setup start:
@@ -324,7 +329,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:5000/user -Headers @{ Authorization = "B
 
 ### Testing
 
-Tests live in `tests/unit` and `tests/integration` and are discovered with the pattern `tests_*.py`. They build the app from `APP_TEST_SETTINGS_MODULE` and create/drop all tables on `DATABASE_TEST_URL` around every test, so **point `DATABASE_TEST_URL` at a throw-away database**.
+Tests live in `tests/unit` and `tests/integration` and are discovered with the pattern `tests_*.py`. They build their own app instances with `create_app()` from `APP_TEST_SETTINGS_MODULE` (default `config.TestingConfig`) and create/drop all tables on `DATABASE_TEST_URL` around every test, so **point `DATABASE_TEST_URL` at a throw-away database**.
 
 ```bash
 flask tests                       # run all tests
@@ -374,7 +379,7 @@ POSTGRES_DB=flask_template
 DATABASE_URL=postgresql://db_user:<same password>@db_service:5432/flask_template
 
 # Gunicorn
-API_ENTRYPOINT=app:app
+API_ENTRYPOINT=wsgi:app
 API_HOST=0.0.0.0
 API_PORT=5000
 ```
@@ -390,7 +395,7 @@ docker compose logs -f api_service      # watch the entrypoint / Gunicorn output
 
 - API through Nginx: <http://localhost/> – Swagger UI: <http://localhost/swagger-ui>
 - API directly: <http://localhost:5000/>
-- Application logs are written to `./logs/api.log` on the host (bind mount), Nginx logs to `./nginx/log/`.
+- Application logs are written to `./logs/api.log` on the host (bind mount, must be writable by uid 1000 – see [container user](#other-things-to-know-before-going-to-production)), Nginx logs to `./nginx/log/`.
 
 **3. Stop**
 
@@ -478,13 +483,14 @@ Custom commands are registered in [manage.py](manage.py) and are available throu
 | `flask reset-db`             | Drop and recreate all tables – **destroys data**                                                                                                                                                              | yes                     |
 | `flask drop-db`              | Drop all tables – **destroys data**                                                                                                                                                                           | yes                     |
 | `flask create-user-admin`    | Seed permissions, roles and the three [default accounts](#default-seed-accounts) if `admin` does not exist; otherwise make sure the `admin` permission exists and is granted to the Admin role (upgrade path) | yes                     |
+| `flask prune-blocklist`      | Delete revoked-token rows whose token has expired anyway; schedule it (e.g. daily)                                                                                                                            | yes                     |
 | `flask tests [--pattern]`    | Run the unittest suite                                                                                                                                                                                        | no                      |
-| `flask cov [--pattern]`      | Run the tests with a coverage summary                                                                                                                                                                         | no                      |
+| `flask cov [--pattern]`      | Run the tests with a coverage summary (needs `requirements-dev.txt`)                                                                                                                                          | no                      |
 | `flask cov-html [--pattern]` | Run the tests and write an HTML coverage report to `report/htmlcov/`                                                                                                                                          | no                      |
 | `flask routes`               | List all registered routes (built-in)                                                                                                                                                                         | yes                     |
 | `flask run`                  | Start the development server (built-in, **not** for production – use Gunicorn)                                                                                                                                | yes                     |
 
-The `flask` CLI locates the application automatically through the `app` package, so `FLASK_APP` does not need to be set.
+The application is built by the factory `app.create_app()`; [wsgi.py](wsgi.py) calls it with `APP_SETTINGS_MODULE` and is what Gunicorn serves (`wsgi:app`). The `flask` CLI discovers `wsgi.py` automatically, so `FLASK_APP` does not need to be set. Nothing is created at import time, which is what lets the tests build isolated app instances.
 
 ## Database Commands
 
@@ -500,6 +506,8 @@ flask db downgrade                 # roll back one revision
 flask db history                   # show revisions
 ```
 
+> **Upgrading an existing database:** `user.time_created` is now a timezone-aware `DateTime` (was a string) and `blocklist.expires_at` is a new nullable column. Generate and apply a migration (`flask db migrate` / `flask db upgrade`) or, for a throw-away local database, `flask reset-db`.
+>
 > **Note:** this template's `.gitignore` lists `migrations/`, so generated migrations are **not** committed by default. For a real project you will almost certainly want to remove that line and version your migrations, otherwise production schema changes cannot be reproduced.
 
 ## API Endpoints

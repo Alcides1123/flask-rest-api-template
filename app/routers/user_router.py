@@ -1,7 +1,9 @@
+from flask import current_app
 from flask.views import MethodView
 from flask_jwt_extended import jwt_required
 from flask_smorest import Blueprint
 
+from app.extensions import limiter
 from app.schemas.user_schema import UpdateBlockUserSchema, UserSchema, UserUpdateSchema
 from app.services import user_service
 from app.utils.authorization import ADMIN_PERMISSION
@@ -49,6 +51,9 @@ class BlockUser(MethodView):
 
 @blp.route("/login")
 class Login(MethodView):
+    # Brute-force protection; limit string comes from config (RATELIMIT_LOGIN)
+    decorators = [limiter.limit(lambda: current_app.config["RATELIMIT_LOGIN"])]
+
     @blp.arguments(UserSchema)
     def post(self, user_data):
         result = user_service.login_user(user_data)
@@ -57,6 +62,8 @@ class Login(MethodView):
 
 @blp.route("/register")
 class Register(MethodView):
+    decorators = [limiter.limit(lambda: current_app.config["RATELIMIT_REGISTER"])]
+
     @blp.arguments(UserSchema)
     def post(self, user_data):
         result = user_service.register_user(user_data)

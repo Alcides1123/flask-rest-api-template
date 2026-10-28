@@ -2,9 +2,10 @@ import logging
 import time
 from functools import wraps
 
+from flask_jwt_extended import current_user
 from flask_smorest import abort
 
-from app.utils.authorization import current_user_id, user_has_permission
+from app.utils.authorization import has_permission
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -22,11 +23,10 @@ def permission_required(permission_name):
         # that flask-smorest attaches), so Swagger docs survive this decorator.
         @wraps(func)
         def wrapper(*arg, **kwargs):
-            user_id = current_user_id()
-            if not user_has_permission(user_id, permission_name):
+            if not has_permission(current_user, permission_name):
                 logger.warning(
                     "User %s lacks permission '%s' for %s",
-                    user_id,
+                    current_user.id,
                     permission_name,
                     func.__qualname__,
                 )

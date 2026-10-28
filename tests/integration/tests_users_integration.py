@@ -14,7 +14,9 @@ class UsersUnitTests(unittest.TestCase):
         It sets up the application context and creates the necessary database tables.
         """
         self.app = create_app(
-            settings_module=os.environ.get("APP_TEST_SETTINGS_MODULE")
+            settings_module=os.environ.get(
+                "APP_TEST_SETTINGS_MODULE", "config.TestingConfig"
+            )
         )
         with self.app.app_context():
             db.create_all()

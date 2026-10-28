@@ -11,7 +11,7 @@ class PlainUserSchema(Schema):
     # load_only: accepted on input (login/register) but never serialized in a
     # response, so password hashes are not exposed by GET /user endpoints.
     password = fields.Str(required=True, load_only=True)
-    time_created = fields.Str(dump_only=True)
+    time_created = fields.DateTime(dump_only=True)
 
 
 class UserUpdateSchema(Schema):

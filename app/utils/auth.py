@@ -1,20 +1,34 @@
 from flask import jsonify
+from sqlalchemy.orm import selectinload
 
 from app.db import db
-from app.extention import jwt
-from app.models import BlocklistModel, UserModel
+from app.extensions import jwt
+from app.models import BlocklistModel, RoleModel, UserModel
 
 
-@jwt.token_verification_loader
-def custom_token_verification_callback(jwt_header, jwt_data):
-    # A token is only valid while its user exists and is not blocked. This is
-    # checked on every request, so blocking a user takes effect immediately.
-    user = db.session.get(UserModel, jwt_data["sub"])
-    return user is not None and not user.block
+@jwt.user_lookup_loader
+def load_user_from_token(jwt_header, jwt_data):
+    """
+    Load the token's user once per request (available as
+    flask_jwt_extended.current_user), together with roles and permissions so
+    that authorization checks need no further queries.
+
+    Returning None makes Flask-JWT-Extended reject the request through
+    user_lookup_error_callback - used for blocked or deleted users, so that
+    blocking takes effect on the user's next request.
+    """
+    user = db.session.get(
+        UserModel,
+        int(jwt_data["sub"]),
+        options=[selectinload(UserModel.roles).selectinload(RoleModel.permissions)],
+    )
+    if user is None or user.block:
+        return None
+    return user
 
 
-@jwt.token_verification_failed_loader
-def token_verification_failed_callback(jwt_header, jwt_payload):
+@jwt.user_lookup_error_loader
+def user_lookup_error_callback(jwt_header, jwt_payload):
     return (
         jsonify(
             {
@@ -28,7 +42,7 @@ def token_verification_failed_callback(jwt_header, jwt_payload):
 
 @jwt.token_in_blocklist_loader
 def check_if_token_in_blocklist(jwt_header, jwt_payload):
-    return BlocklistModel.query.filter_by(jti_blocklist=jwt_payload["jti"]).first()
+    return db.session.get(BlocklistModel, jwt_payload["jti"]) is not None
 
 
 @jwt.revoked_token_loader

@@ -18,7 +18,9 @@ class AuthorizationIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         self.app = create_app(
-            settings_module=os.environ.get("APP_TEST_SETTINGS_MODULE")
+            settings_module=os.environ.get(
+                "APP_TEST_SETTINGS_MODULE", "config.TestingConfig"
+            )
         )
         self.client = self.app.test_client()
         with self.app.app_context():

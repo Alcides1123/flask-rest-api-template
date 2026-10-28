@@ -2,6 +2,9 @@
 
 echo "Start run entrypoint script..."
 
+# WSGI entrypoint (module:variable); wsgi.py builds the app from APP_SETTINGS_MODULE
+API_ENTRYPOINT="${API_ENTRYPOINT:-wsgi:app}"
+
 echo "Database:" $DATABASE
 
 if [ "$DATABASE" = "postgres" ]
@@ -29,10 +32,10 @@ if [ "$APP_ENV" = "local" ]; then
     echo "Done init user-admin"
 
     echo "Run app with gunicorn server..."
-    gunicorn -c ./gunicorn/gunicorn_config.py $API_ENTRYPOINT;
+    gunicorn -c ./gunicorn/gunicorn_config.py "$API_ENTRYPOINT";
 fi
 
 if [ "$APP_ENV" = "production" ]; then
     echo "Run app with gunicorn server..."
-    gunicorn --bind $API_HOST:$API_PORT $API_ENTRYPOINT --timeout 10 --workers 4;
+    gunicorn --bind "$API_HOST:$API_PORT" "$API_ENTRYPOINT" --timeout 10 --workers 4;
 fi
