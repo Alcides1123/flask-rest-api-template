@@ -8,14 +8,18 @@ class PlainUserSchema(Schema):
     # Dump only: only read
     id = fields.Str(dump_only=True)
     username = fields.Str(required=True)
-    password = fields.Str(required=True)
+    # load_only: accepted on input (login/register) but never serialized in a
+    # response, so password hashes are not exposed by GET /user endpoints.
+    password = fields.Str(required=True, load_only=True)
     time_created = fields.Str(dump_only=True)
 
 
 class UserUpdateSchema(Schema):
-    username = fields.Str(allow_none=True, required=True)
-    password = fields.Str(allow_none=True, required=True)
-    roles = fields.List(cls_or_instance=fields.Int, required=True)
+    # All fields optional: omitted / null fields are left unchanged.
+    # "roles" may only be set by an admin (enforced in user_service.update_user).
+    username = fields.Str(allow_none=True, load_default=None)
+    password = fields.Str(allow_none=True, load_only=True, load_default=None)
+    roles = fields.List(fields.Int, allow_none=True, load_default=None)
 
 
 class UserSchema(PlainUserSchema):

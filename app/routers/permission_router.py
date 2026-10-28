@@ -5,6 +5,7 @@ from flask_smorest import Blueprint
 from app.schemas.permission_schema import UpdatePermissionRoleSchema
 from app.schemas.role_permission_schema import PermissionSchema
 from app.services import permission_service, role_permission_service
+from app.utils.authorization import ADMIN_PERMISSION
 from app.utils.decorators import permission_required
 
 blp = Blueprint("Permission", __name__, description="Permission API")
@@ -20,10 +21,10 @@ class PermissionList(MethodView):
         return result
 
     @jwt_required()
-    @permission_required(permission_name="write")
+    @permission_required(permission_name=ADMIN_PERMISSION)
     @blp.arguments(PermissionSchema)
-    def post(self, qa_history_data):
-        result = permission_service.post_permission(qa_history_data)
+    def post(self, permission_data):
+        result = permission_service.post_permission(permission_data)
         return result
 
 
@@ -37,7 +38,7 @@ class Permission(MethodView):
         return result
 
     @jwt_required()
-    @permission_required(permission_name="write")
+    @permission_required(permission_name=ADMIN_PERMISSION)
     @blp.arguments(PermissionSchema)
     def put(self, permission_data, permission_id):
         result = permission_service.update_permission(permission_data, permission_id)
@@ -47,7 +48,7 @@ class Permission(MethodView):
 @blp.route("/permission-role-update")
 class PermissionRole(MethodView):
     @jwt_required()
-    @permission_required(permission_name="write")
+    @permission_required(permission_name=ADMIN_PERMISSION)
     @blp.arguments(UpdatePermissionRoleSchema)
     def put(self, permission_data):
         result = role_permission_service.update_roles_to_permission(permission_data)

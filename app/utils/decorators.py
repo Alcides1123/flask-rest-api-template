@@ -2,27 +2,36 @@ import logging
 import time
 from functools import wraps
 
-from flask_jwt_extended import get_jwt
 from flask_smorest import abort
 
-from app.models import UserModel
+from app.utils.authorization import current_user_id, user_has_permission
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
 
 
 def permission_required(permission_name):
+    """
+    Reject the request with 403 unless the authenticated user holds the
+    permission through one of their roles. Must be applied *after*
+    jwt_required() (i.e. listed below it), since it relies on the verified JWT.
+    """
+
     def decorator(func):
+        # wraps() copies the function metadata (including the _apidoc attribute
+        # that flask-smorest attaches), so Swagger docs survive this decorator.
+        @wraps(func)
         def wrapper(*arg, **kwargs):
-            jwt_data = get_jwt()
-            user_id = jwt_data["sub"]
-            user = UserModel.query.filter_by(id=user_id).first()
-            for role in user.roles:
-                for permission in role.permissions:
-                    if permission.name == permission_name:
-                        return func(*arg, **kwargs)
-            logger.error("User does not have permission to access this API!")
-            abort(403, message="User does not have permission to access this API!")
+            user_id = current_user_id()
+            if not user_has_permission(user_id, permission_name):
+                logger.warning(
+                    "User %s lacks permission '%s' for %s",
+                    user_id,
+                    permission_name,
+                    func.__qualname__,
+                )
+                abort(403, message="User does not have permission to access this API!")
+            return func(*arg, **kwargs)
 
         return wrapper
 
@@ -30,6 +39,7 @@ def permission_required(permission_name):
 
 
 def time_profiling(func):
+    @wraps(func)
     def wrapper(*args, **kwargs):
         start_time = time.time()
         result = func(*args, **kwargs)

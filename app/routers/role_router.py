@@ -4,6 +4,7 @@ from flask_smorest import Blueprint
 
 from app.schemas.role_permission_schema import RoleSchema, UpdateRolePermissionSchema
 from app.services import role_service
+from app.utils.authorization import ADMIN_PERMISSION
 from app.utils.decorators import permission_required
 
 blp = Blueprint("Role", __name__, description="Role API")
@@ -19,10 +20,10 @@ class RoleList(MethodView):
         return result
 
     @jwt_required()
-    @permission_required(permission_name="write")
+    @permission_required(permission_name=ADMIN_PERMISSION)
     @blp.arguments(UpdateRolePermissionSchema)
-    def post(self, qa_history_data):
-        result = role_service.post_role(qa_history_data)
+    def post(self, role_data):
+        result = role_service.post_role(role_data)
         return result
 
 
@@ -36,14 +37,14 @@ class Role(MethodView):
         return result
 
     @jwt_required()
-    @permission_required(permission_name="write")
+    @permission_required(permission_name=ADMIN_PERMISSION)
     @blp.arguments(UpdateRolePermissionSchema)
     def put(self, role_data, role_id):
         result = role_service.update_role(role_data, role_id)
         return result
 
     @jwt_required()
-    @permission_required(permission_name="delete")
+    @permission_required(permission_name=ADMIN_PERMISSION)
     def delete(self, role_id):
         result = role_service.delete_role(role_id)
         return result

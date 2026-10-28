@@ -1,19 +1,29 @@
 from flask import jsonify
 
+from app.db import db
 from app.extention import jwt
 from app.models import BlocklistModel, UserModel
 
 
 @jwt.token_verification_loader
 def custom_token_verification_callback(jwt_header, jwt_data):
-    # Query in database
-    user = UserModel.query.filter_by(id=jwt_data["sub"]).first()
+    # A token is only valid while its user exists and is not blocked. This is
+    # checked on every request, so blocking a user takes effect immediately.
+    user = db.session.get(UserModel, jwt_data["sub"])
+    return user is not None and not user.block
 
-    # If user was blocked, user will not access.
-    if user.block is True:
-        return False
 
-    return True
+@jwt.token_verification_failed_loader
+def token_verification_failed_callback(jwt_header, jwt_payload):
+    return (
+        jsonify(
+            {
+                "description": "The user is blocked or no longer exists",
+                "error": "user_blocked",
+            }
+        ),
+        401,
+    )
 
 
 @jwt.token_in_blocklist_loader
@@ -39,14 +49,6 @@ def token_not_fresh_callback(jwt_header, jwt_payload):
         ),
         401,
     )
-
-
-@jwt.additional_claims_loader
-def add_claims_to_jwt(identity):
-    # Look in admin in database
-    if identity == 1:
-        return {"is_admin": True}
-    return {"is_admin": False}
 
 
 @jwt.expired_token_loader

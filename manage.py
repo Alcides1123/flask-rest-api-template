@@ -1,3 +1,4 @@
+import sys
 import unittest
 
 import click
@@ -5,13 +6,8 @@ import coverage
 from passlib.hash import pbkdf2_sha256
 
 from app.db import db
-from app.models import (
-    PermissionModel,
-    RoleModel,
-    RolePermissionModel,
-    UserModel,
-    UserRoleModel,
-)
+from app.models import PermissionModel, RoleModel, UserModel
+from app.utils.authorization import ADMIN_PERMISSION
 
 
 @click.option(
@@ -31,8 +27,9 @@ def cov(pattern):
         print("Coverage Summary:")
         cov.report()
         cov.erase()
-        return 0
-    return 1
+        sys.exit(0)
+    # A non-zero exit code is what makes CI fail; Click ignores return values.
+    sys.exit(1)
 
 
 @click.option(
@@ -56,9 +53,9 @@ def cov_html(pattern):
         cov.report()
         cov.html_report(directory="report/htmlcov")
         cov.erase()
-        return 0
+        sys.exit(0)
 
-    return 1
+    sys.exit(1)
 
 
 @click.option("--pattern", default="tests_*.py", help="Test pattern", required=False)
@@ -68,9 +65,7 @@ def tests(pattern):
     """
     tests = unittest.TestLoader().discover("tests", pattern=pattern)
     result = unittest.TextTestRunner(verbosity=2).run(tests)
-    if result.wasSuccessful():
-        return 0
-    return 1
+    sys.exit(0 if result.wasSuccessful() else 1)
 
 
 def create_db():
@@ -98,53 +93,72 @@ def drop_db():
     db.session.commit()
 
 
+# Seed data. Passwords are for local development only - see README "Default Seed Accounts".
+SEED_PASSWORD = "123456"
+
+SEED_PERMISSIONS = {
+    "read": "Read data",
+    "write": "Write data",
+    "delete": "Delete data",
+    ADMIN_PERMISSION: "Manage users, roles and permissions",
+}
+
+# role name -> (description, permissions)
+SEED_ROLES = {
+    "Admin": ("Full Permission", ["read", "write", "delete", ADMIN_PERMISSION]),
+    "User": ("Can read, write data", ["read", "write"]),
+    "Guest": ("Just read data", ["read"]),
+}
+
+# username -> role
+SEED_USERS = {"admin": "Admin", "user": "User", "guest": "Guest"}
+
+
 def init_db_user():
-    # Insert Permission
-    read_perrmission = PermissionModel(name="read", description="Read data")
-    write_perrmission = PermissionModel(name="write", description="Write data")
-    delete_perrmission = PermissionModel(name="delete", description="Delete data")
-    db.session.add_all([read_perrmission, write_perrmission, delete_perrmission])
+    """
+    Seed permissions, roles and users. Relationships are built from objects,
+    not hard-coded ids, so the result does not depend on sequence values.
+    """
+    permissions = {
+        name: PermissionModel(name=name, description=description)
+        for name, description in SEED_PERMISSIONS.items()
+    }
+    db.session.add_all(permissions.values())
+
+    roles = {}
+    for name, (description, permission_names) in SEED_ROLES.items():
+        role = RoleModel(name=name, description=description)
+        role.permissions = [permissions[p] for p in permission_names]
+        roles[name] = role
+    db.session.add_all(roles.values())
+
+    password = pbkdf2_sha256.hash(SEED_PASSWORD)
+    for username, role_name in SEED_USERS.items():
+        user = UserModel(username=username, password=password)
+        user.roles.append(roles[role_name])
+        db.session.add(user)
+
     db.session.commit()
 
-    # Insert Role
-    admin_role = RoleModel(name="Admin", description="Full Permission")
-    user_role = RoleModel(name="User", description="Can read, write data")
-    guest_role = RoleModel(name="Guest", description="Just read data")
-    db.session.add_all([admin_role, user_role, guest_role])
-    db.session.commit()
 
-    # Insert Role_Permission
-    role_permission_admin1 = RolePermissionModel(role_id=1, permission_id=1)
-    role_permission_admin2 = RolePermissionModel(role_id=1, permission_id=2)
-    role_permission_admin3 = RolePermissionModel(role_id=1, permission_id=3)
-    role_permission_user1 = RolePermissionModel(role_id=2, permission_id=1)
-    role_permission_user2 = RolePermissionModel(role_id=2, permission_id=2)
-    role_permission_guest = RolePermissionModel(role_id=3, permission_id=1)
-    db.session.add_all(
-        [
-            role_permission_admin1,
-            role_permission_admin2,
-            role_permission_admin3,
-            role_permission_user1,
-            role_permission_user2,
-            role_permission_guest,
-        ]
-    )
-    db.session.commit()
+def ensure_admin_permission():
+    """
+    Upgrade path for databases seeded before the "admin" permission existed:
+    create it if missing and grant it to the "Admin" role.
+    """
+    permission = PermissionModel.query.filter_by(name=ADMIN_PERMISSION).first()
+    if permission is None:
+        permission = PermissionModel(
+            name=ADMIN_PERMISSION, description=SEED_PERMISSIONS[ADMIN_PERMISSION]
+        )
+        db.session.add(permission)
+        print(f"Created missing '{ADMIN_PERMISSION}' permission.")
 
-    # Insert User
-    password = pbkdf2_sha256.hash("123456")
-    admin_user = UserModel(username="admin", password=password)
-    normal_user = UserModel(username="user", password=password)
-    guest_user = UserModel(username="guest", password=password)
-    db.session.add_all([admin_user, normal_user, guest_user])
-    db.session.commit()
+    admin_role = RoleModel.query.filter_by(name="Admin").first()
+    if admin_role is not None and permission not in admin_role.permissions:
+        admin_role.permissions.append(permission)
+        print(f"Granted '{ADMIN_PERMISSION}' permission to the Admin role.")
 
-    # Insert UserRole
-    user_role1 = UserRoleModel(user_id=1, role_id=1)
-    user_role2 = UserRoleModel(user_id=2, role_id=2)
-    user_role3 = UserRoleModel(user_id=3, role_id=3)
-    db.session.add_all([user_role1, user_role2, user_role3])
     db.session.commit()
 
 
@@ -159,6 +173,7 @@ def create_user_admin(username="admin"):
         init_db_user()
     else:
         print("user-admin is created!")
+        ensure_admin_permission()
 
 
 def init_app(app):

@@ -5,6 +5,7 @@ from sqlalchemy import asc
 
 from app.db import db
 from app.models.permission_model import PermissionModel
+from app.utils.authorization import ensure_caller_keeps_admin, get_or_404
 
 # Create logger for this module
 logger = logging.getLogger(__name__)
@@ -24,10 +25,10 @@ def post_permission(permission_data):
 
         db.session.add(new_row)
         db.session.commit()
-    except Exception as ex:
+    except Exception:
         db.session.rollback()
-        logger.error(f"Can not add permission! Error: {ex}")
-        abort(400, message=f"Can not add permission! Error: {ex}")
+        logger.exception("Can not add permission!")
+        abort(400, message="Can not add permission!")
 
     return {"message": "Add successfully!"}
 
@@ -38,23 +39,22 @@ def get_permission(permission_id):
 
 
 def update_permission(permission_data, permission_id):
-    permission = PermissionModel.query.filter_by(id=permission_id).first()
+    permission = get_or_404(PermissionModel, permission_id, "Permission")
 
-    if not permission:
-        logger.error("permission doesn't exist, cannot update!")
-        abort(400, message="permission doesn't exist, cannot update!")
+    if permission_data["name"]:
+        permission.name = permission_data["name"]
+
+    if permission_data["description"]:
+        permission.description = permission_data["description"]
+
+    # Renaming the admin permission would lock every admin out
+    ensure_caller_keeps_admin()
 
     try:
-        if permission_data["name"]:
-            permission.name = permission_data["name"]
-
-        if permission_data["description"]:
-            permission.description = permission_data["description"]
-
         db.session.commit()
-    except Exception as ex:
+    except Exception:
         db.session.rollback()
-        logger.error(f"Can not update permission! Error: {ex}")
-        abort(400, message=f"Can not update permission! Error: {ex}")
+        logger.exception("Can not update permission!")
+        abort(400, message="Can not update permission!")
 
     return {"message": "Update successfully!"}

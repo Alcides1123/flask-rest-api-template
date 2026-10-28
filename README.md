@@ -21,6 +21,7 @@ All commands in this guide are given for **Bash** (Linux / macOS / WSL / Git Bas
   - [Verify Your Repository is Secure](#verify-your-repository-is-secure)
   - [Generating Secrets](#generating-secrets)
   - [Default Seed Accounts](#default-seed-accounts)
+    - [How authorization works](#how-authorization-works)
   - [Other Things to Know Before Going to Production](#other-things-to-know-before-going-to-production)
 - [Environments](#environments)
   - [Environment Variables](#environment-variables)
@@ -153,11 +154,11 @@ Run it twice and paste one value into each variable. Never reuse the development
 
 `flask create-user-admin` (which the Docker `entrypoint.sh` runs automatically when `APP_ENV=local`) seeds three accounts for convenience:
 
-| Username | Password | Role  | Permissions         |
-| -------- | -------- | ----- | ------------------- |
-| `admin`  | `123456` | Admin | read, write, delete |
-| `user`   | `123456` | User  | read, write         |
-| `guest`  | `123456` | Guest | read                |
+| Username | Password | Role  | Permissions                |
+| -------- | -------- | ----- | -------------------------- |
+| `admin`  | `123456` | Admin | read, write, delete, admin |
+| `user`   | `123456` | User  | read, write                |
+| `guest`  | `123456` | Guest | read                       |
 
 These are **public, well-known credentials**. Before any environment is reachable by someone other than you:
 
@@ -165,13 +166,21 @@ These are **public, well-known credentials**. Before any environment is reachabl
 - edit `init_db_user()` in [manage.py](manage.py) to read the initial password from an environment variable, or
 - do not run `create-user-admin` at all in that environment (in `APP_ENV=production` the entrypoint does not run it).
 
-Note that **user id `1` is treated as the super admin** by the JWT claims loader (`is_admin`) – it cannot be blocked and is the only user allowed to block others. Protect that account accordingly.
+#### How authorization works
+
+- `read`, `write` and `delete` gate access to data.
+- The `admin` permission gates everything that changes _who may do what_: creating / editing / deleting roles and permissions, assigning roles to users, and blocking users. `write` alone never lets a user change authorization.
+- Users may update their own username and password; only an admin may update other users or change `roles`.
+- Nothing authorization-related is stored in the JWT. Every request re-reads roles and permissions from the database, so revoking a role or blocking a user takes effect on the user's very next request.
+- Lockout guard: any change that would remove the caller's own `admin` access (e.g. deleting the Admin role, removing the `admin` permission from it, renaming the permission, or an admin blocking themselves) is rejected with `400` before it is committed.
+
+There is no special "super admin" user id. Whoever holds a role with the `admin` permission is an admin; running `flask create-user-admin` on a database seeded by an older version of this template adds the `admin` permission to the existing `Admin` role.
 
 ### Other Things to Know Before Going to Production
 
 - **CORS** is configured as `origins: "*"` with `supports_credentials` in `app/__init__.py`. Restrict it to your real front-end origin(s).
 - **Token lifetimes** are set in `config.py` (`JWT_ACCESS_TOKEN_EXPIRES` = 30 minutes, `JWT_REFRESH_TOKEN_EXPIRES` = 30 days). Logging out or refreshing adds the token `jti` to a database blocklist.
-- **Registration** (`POST /register`) is open and assigns the `Guest` (read-only) role. Disable or protect it if you do not want self sign-up.
+- **Registration** (`POST /register`) is open and assigns the `Guest` (read-only) role, looked up by name. Disable or protect it if you do not want self sign-up.
 - **Environment files are not part of the deployment archive** (see [Creating Deployment Archive](#creating-deployment-archive)); `.env.api.local` / `.env.db.local` must be provisioned on the server (or injected by your orchestrator) out of band.
 - **Gunicorn worker count / timeouts** are tunable via environment variables (`WEB_CONCURRENCY`, `MAX_WORKERS`, `TIMEOUT`, …) – see [gunicorn/gunicorn_config.py](gunicorn/gunicorn_config.py).
 - Run the app behind TLS (terminate at the load balancer or in Nginx). The provided [nginx/default.conf](nginx/default.conf) is plain HTTP.
@@ -463,17 +472,17 @@ Both must return nothing.
 
 Custom commands are registered in [manage.py](manage.py) and are available through the `flask` CLI once `APP_SETTINGS_MODULE` (and a database URL) is set. Run `flask --help` to list them.
 
-| Command                      | Description                                                                                                | Available in production |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `flask create-db`            | Create all tables (`db.create_all()`)                                                                      | yes                     |
-| `flask reset-db`             | Drop and recreate all tables – **destroys data**                                                           | yes                     |
-| `flask drop-db`              | Drop all tables – **destroys data**                                                                        | yes                     |
-| `flask create-user-admin`    | Seed permissions, roles and the three [default accounts](#default-seed-accounts) if `admin` does not exist | yes                     |
-| `flask tests [--pattern]`    | Run the unittest suite                                                                                     | no                      |
-| `flask cov [--pattern]`      | Run the tests with a coverage summary                                                                      | no                      |
-| `flask cov-html [--pattern]` | Run the tests and write an HTML coverage report to `report/htmlcov/`                                       | no                      |
-| `flask routes`               | List all registered routes (built-in)                                                                      | yes                     |
-| `flask run`                  | Start the development server (built-in, **not** for production – use Gunicorn)                             | yes                     |
+| Command                      | Description                                                                                                                                                                                                   | Available in production |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `flask create-db`            | Create all tables (`db.create_all()`)                                                                                                                                                                         | yes                     |
+| `flask reset-db`             | Drop and recreate all tables – **destroys data**                                                                                                                                                              | yes                     |
+| `flask drop-db`              | Drop all tables – **destroys data**                                                                                                                                                                           | yes                     |
+| `flask create-user-admin`    | Seed permissions, roles and the three [default accounts](#default-seed-accounts) if `admin` does not exist; otherwise make sure the `admin` permission exists and is granted to the Admin role (upgrade path) | yes                     |
+| `flask tests [--pattern]`    | Run the unittest suite                                                                                                                                                                                        | no                      |
+| `flask cov [--pattern]`      | Run the tests with a coverage summary                                                                                                                                                                         | no                      |
+| `flask cov-html [--pattern]` | Run the tests and write an HTML coverage report to `report/htmlcov/`                                                                                                                                          | no                      |
+| `flask routes`               | List all registered routes (built-in)                                                                                                                                                                         | yes                     |
+| `flask run`                  | Start the development server (built-in, **not** for production – use Gunicorn)                                                                                                                                | yes                     |
 
 The `flask` CLI locates the application automatically through the `app` package, so `FLASK_APP` does not need to be set.
 
@@ -495,29 +504,29 @@ flask db history                   # show revisions
 
 ## API Endpoints
 
-All endpoints except `/login` and `/register` require `Authorization: Bearer <access_token>`. The permission column is enforced by the `permission_required` decorator through the user's roles.
+All endpoints except `/login` and `/register` require `Authorization: Bearer <access_token>`. The permission column is enforced by the `permission_required` decorator through the user's roles (see [How authorization works](#how-authorization-works)). Unknown ids return a JSON `404`.
 
-| Method | Path                              | Permission           | Description                                           |
-| ------ | --------------------------------- | -------------------- | ----------------------------------------------------- |
-| POST   | `/register`                       | –                    | Create a user (gets the `Guest` role)                 |
-| POST   | `/login`                          | –                    | Returns `access_token` and `refresh_token`            |
-| POST   | `/refresh`                        | refresh token        | New token pair; the used refresh token is blocklisted |
-| POST   | `/logout`                         | any token            | Blocklist the current access token                    |
-| GET    | `/user`                           | read                 | List users                                            |
-| GET    | `/user/<id>`                      | read                 | Get a user                                            |
-| PUT    | `/user/<id>`                      | write                | Update username / password / roles                    |
-| PUT    | `/block-user/<id>`                | delete + super admin | Block or unblock a user                               |
-| POST   | `/user/<user_id>/role/<role_id>`  | write                | Assign a role to a user                               |
-| DELETE | `/user/<user_id>/role/<role_id>`  | delete               | Remove a role from a user                             |
-| GET    | `/role`, `/role/<id>`             | read                 | List / get roles                                      |
-| POST   | `/role`                           | write                | Create a role                                         |
-| PUT    | `/role/<id>`                      | write                | Update a role                                         |
-| DELETE | `/role/<id>`                      | delete               | Delete a role                                         |
-| GET    | `/permission`, `/permission/<id>` | read                 | List / get permissions                                |
-| POST   | `/permission`                     | write                | Create a permission                                   |
-| PUT    | `/permission/<id>`                | write                | Update a permission                                   |
-| PUT    | `/permission-role-update`         | write                | Update the permissions of a role                      |
-| GET    | `/role-permission`                | read                 | List role ↔ permission links                          |
+| Method | Path                              | Permission     | Description                                                   |
+| ------ | --------------------------------- | -------------- | ------------------------------------------------------------- |
+| POST   | `/register`                       | –              | Create a user (gets the `Guest` role)                         |
+| POST   | `/login`                          | –              | Returns `access_token` and `refresh_token`                    |
+| POST   | `/refresh`                        | refresh token  | New (non-fresh) token pair; the used refresh token is revoked |
+| POST   | `/logout`                         | any token      | Revoke the access token and its paired refresh token          |
+| GET    | `/user`                           | read           | List users                                                    |
+| GET    | `/user/<id>`                      | read           | Get a user                                                    |
+| PUT    | `/user/<id>`                      | self, or admin | Update own username / password; admin may also set `roles`    |
+| PUT    | `/block-user/<id>`                | admin          | Block or unblock a user (not yourself)                        |
+| POST   | `/user/<user_id>/role/<role_id>`  | admin          | Assign a role to a user                                       |
+| DELETE | `/user/<user_id>/role/<role_id>`  | admin          | Remove a role from a user                                     |
+| GET    | `/role`, `/role/<id>`             | read           | List / get roles                                              |
+| POST   | `/role`                           | admin          | Create a role                                                 |
+| PUT    | `/role/<id>`                      | admin          | Update a role and its permissions                             |
+| DELETE | `/role/<id>`                      | admin          | Delete a role                                                 |
+| GET    | `/permission`, `/permission/<id>` | read           | List / get permissions                                        |
+| POST   | `/permission`                     | admin          | Create a permission                                           |
+| PUT    | `/permission/<id>`                | admin          | Update a permission                                           |
+| PUT    | `/permission-role-update`         | admin          | Replace the roles of one or more permissions                  |
+| GET    | `/role-permission`                | read           | List role ↔ permission links                                  |
 
 A Postman environment is provided in [tests/postman/](tests/postman/FlaskTemplate.postman_environment.json) (`HOST`, `TOKEN`, `REFRESHTOKEN`).
 
