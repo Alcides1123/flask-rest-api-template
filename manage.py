@@ -2,7 +2,6 @@ import sys
 import unittest
 
 import click
-import coverage
 from passlib.hash import pbkdf2_sha256
 
 from app.db import db
@@ -17,6 +16,8 @@ def cov(pattern):
     """
     Run the unit tests with coverage
     """
+    import coverage  # dev dependency (requirements-dev.txt), not needed at runtime
+
     cov = coverage.coverage(branch=True, include="app/*")
     cov.start()
     tests = unittest.TestLoader().discover("tests", pattern=pattern)
@@ -39,6 +40,8 @@ def cov_html(pattern):
     """
     Run the unit tests with coverage and generate an HTML report.
     """
+    import coverage  # dev dependency (requirements-dev.txt), not needed at runtime
+
     cov = coverage.coverage(branch=True, include="app/*")
     cov.start()
 

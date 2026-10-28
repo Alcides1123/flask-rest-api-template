@@ -5,7 +5,6 @@ from flask_jwt_extended import (
     create_refresh_token,
     decode_token,
     get_jwt,
-    get_jwt_identity,
 )
 from flask_smorest import abort
 from passlib.hash import pbkdf2_sha256
@@ -161,11 +160,14 @@ def create_token_pair(user_id, fresh=False):
     access token (claim "refresh_jti"). That lets /logout revoke both tokens
     of the pair even though the client only presents the access token.
     """
-    refresh_token = create_refresh_token(identity=user_id)
+    # "sub" must be a string (RFC 7519); see authorization.current_user_id()
+    identity = str(user_id)
+
+    refresh_token = create_refresh_token(identity=identity)
     refresh_jti = decode_token(refresh_token)["jti"]
 
     access_token = create_access_token(
-        identity=user_id,
+        identity=identity,
         fresh=fresh,
         additional_claims={"refresh_jti": refresh_jti},
     )
@@ -190,14 +192,14 @@ def logout_user():
 
 def refresh_token():
     # Get id current user
-    current_user_id = get_jwt_identity()
+    user_id = current_user_id()
 
     # Refresh tokens are single-use: revoke the one that was just presented.
     # NOTE: the access token that was paired with it is *not* revoked here
     # (its jti is not known in this context) and stays valid until it expires.
     add_jti_blocklist(get_jwt()["jti"])
 
-    return create_token_pair(current_user_id, fresh=False)
+    return create_token_pair(user_id, fresh=False)
 
 
 def add_jti_blocklist(jti):

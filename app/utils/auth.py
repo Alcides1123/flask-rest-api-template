@@ -9,7 +9,7 @@ from app.models import BlocklistModel, UserModel
 def custom_token_verification_callback(jwt_header, jwt_data):
     # A token is only valid while its user exists and is not blocked. This is
     # checked on every request, so blocking a user takes effect immediately.
-    user = db.session.get(UserModel, jwt_data["sub"])
+    user = db.session.get(UserModel, int(jwt_data["sub"]))
     return user is not None and not user.block
 
 

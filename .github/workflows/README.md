@@ -32,6 +32,7 @@
 **Jobs:**
 
 - Install dependencies (caches)
+- Audit runtime dependencies with pip-audit
 - Run isort
 - Run black
 - Run flake8
@@ -40,7 +41,7 @@
 - Push images to Docker Hub
 
 **Description:**
-This workflow is triggered on Pull Requests into the develop branch and on every push to it. It ensures a clean and standardized codebase by installing dependencies, checking code formatting with isort, black, and flake8, running the test suite, and finally building and pushing Docker images to Docker Hub.
+This workflow is triggered on Pull Requests into the develop branch and on every push to it. It ensures a clean and standardized codebase by installing dependencies, auditing the runtime dependencies for known vulnerabilities with pip-audit, checking code formatting with isort, black, and flake8, running the test suite, and finally building and pushing Docker images to Docker Hub.
 
 ### Staging - CI/CD Pipeline
 
@@ -51,6 +52,7 @@ This workflow is triggered on Pull Requests into the develop branch and on every
 **Jobs:**
 
 - Install dependencies (caches)
+- Audit runtime dependencies with pip-audit
 - Run isort
 - Run black
 - Run flake8
@@ -74,6 +76,7 @@ This pipeline is designed for the staging environment and is triggered on Pull R
 **Jobs:**
 
 - Install dependencies (caches)
+- Audit runtime dependencies with pip-audit
 - Run isort
 - Run black
 - Run flake8

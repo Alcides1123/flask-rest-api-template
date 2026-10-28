@@ -40,7 +40,9 @@ def user_has_permission(user_id, permission_name):
 
 
 def current_user_id():
-    return get_jwt_identity()
+    # The JWT "sub" claim must be a string (RFC 7519 / PyJWT >= 2.10);
+    # the application works with integer primary keys.
+    return int(get_jwt_identity())
 
 
 def current_user_is_admin():
